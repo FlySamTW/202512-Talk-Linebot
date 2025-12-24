@@ -26,9 +26,10 @@ function runInitializeAndReport() {
 }
 /**
  * LINE Bot Assistant
- * Version: 4.5.0 (Batch Logging, Speed Optimization)
+ * Version: 4.6.0 (Formatting Fix, GitHub Init)
  * Last Updated: 2025-12-24
  * Key changes:
+ * - [Fix] 排版優化：強制句子間空一行 (Code-based Formatting)
  * - [New] 實作 Batch Logging 機制：日誌寫入延後至回覆後一次性處理 (Speed Up!)
  * - Provider 讀 Prompt!A1（XAI / OPENROUTER）
  * - Model 讀 Prompt!A2（依供應商）
@@ -160,7 +161,8 @@ function handleMessage(userMessage, userId, replyToken, contextId) {
     const took = Date.now() - start;
 
     if (assistantResponseText && assistantResponseText.trim() !== "") {
-      const finalText = assistantResponseText.trim();
+      const finalRawText = assistantResponseText.trim();
+      const finalText = formatForLineMobile(finalRawText);
 
       if (contextId === userId) {
         if ((usedReply || took > 45000) && canUsePush(contextId, userId)) {
@@ -953,9 +955,22 @@ function splitMessage(text) {
     if (splitIndex === -1 || splitIndex === 0) splitIndex = MAX_LENGTH;
     else splitIndex += 1;
     messages.push(currentText.substring(0, splitIndex).trim());
+```
     currentText = currentText.substring(splitIndex).trim();
   }
   return messages.filter(Boolean);
+}
+
+function formatForLineMobile(text) {
+  let processed = text;
+  
+  // 1. 標準化換行：遇到句尾符號後接換行(無論幾個)，強制重置為兩個換行 (即空一行)
+  processed = processed.replace(/([。！？\.\!\?])\n+/g, '$1\n\n');
+  
+  // 2. 全局清理：將所有連續 3 個以上的換行縮減為 2 個 (保持整潔)
+  processed = processed.replace(/\n{3,}/g, '\n\n');
+  
+  return processed;
 }
 
 // 可重現 UUID v4（X-Line-Retry-Key）
