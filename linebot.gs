@@ -26,9 +26,10 @@ function runInitializeAndReport() {
 }
 /**
  * LINE Bot Assistant
- * Version: 4.6.1 (Syntax Fix)
+ * Version: 4.7.0 (Automated Deployment)
  * Last Updated: 2025-12-24
  * Key changes:
+ * - [Deploy] 使用 Clasp 自動部署至 Google Apps Script
  * - [Fix] 排版優化：強制句子間空一行 (Code-based Formatting)
  * - [New] 實作 Batch Logging 機制：日誌寫入延後至回覆後一次性處理 (Speed Up!)
  * - Provider 讀 Prompt!A1（XAI / OPENROUTER）
