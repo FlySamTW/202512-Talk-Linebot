@@ -26,9 +26,10 @@ function runInitializeAndReport() {
 }
 /**
  * LINE Bot Assistant
- * Version: 4.7.0 (Automated Deployment)
+ * Version: 4.8.0 (Aggressive Formatting)
  * Last Updated: 2025-12-24
  * Key changes:
+ * - [Fix] 暴力排版：中文標點後強制插入空行 (不依賴 AI 換行)
  * - [Deploy] 使用 Clasp 自動部署至 Google Apps Script
  * - [Fix] 排版優化：強制句子間空一行 (Code-based Formatting)
  * - [New] 實作 Batch Logging 機制：日誌寫入延後至回覆後一次性處理 (Speed Up!)
@@ -964,13 +965,15 @@ function splitMessage(text) {
 function formatForLineMobile(text) {
   let processed = text;
   
-  // 1. 標準化換行：遇到句尾符號後接換行(無論幾個)，強制重置為兩個換行 (即空一行)
-  processed = processed.replace(/([。！？\.\!\?])\n+/g, '$1\n\n');
-  
-  // 2. 全局清理：將所有連續 3 個以上的換行縮減為 2 個 (保持整潔)
+  // 暴力修正：
+  // 1. 只要遇到中文句號(。)、問號(？)、驚嘆號(！)，後面直接強制接兩個換行 (\n\n)
+  // 2. (?!\n\n) 是為了避免原本就已經有空行的地方被重複加成超級大空行
+  processed = processed.replace(/([。！？])(?!\n\n)/g, '$1\n\n');
+
+  // 3. 清理一下：如果連續換行超過 3 個（變得太空），縮減回 2 個
   processed = processed.replace(/\n{3,}/g, '\n\n');
   
-  return processed;
+  return processed.trim();
 }
 
 // 可重現 UUID v4（X-Line-Retry-Key）
