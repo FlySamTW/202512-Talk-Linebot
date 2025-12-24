@@ -26,7 +26,7 @@ function runInitializeAndReport() {
 }
 /**
  * LINE Bot Assistant
- * Version: 4.6.0 (Formatting Fix, GitHub Init)
+ * Version: 4.6.1 (Syntax Fix)
  * Last Updated: 2025-12-24
  * Key changes:
  * - [Fix] 排版優化：強制句子間空一行 (Code-based Formatting)
@@ -955,7 +955,6 @@ function splitMessage(text) {
     if (splitIndex === -1 || splitIndex === 0) splitIndex = MAX_LENGTH;
     else splitIndex += 1;
     messages.push(currentText.substring(0, splitIndex).trim());
-```
     currentText = currentText.substring(splitIndex).trim();
   }
   return messages.filter(Boolean);
