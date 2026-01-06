@@ -4,30 +4,36 @@
 function runInitializeAndReport() {
   try {
     const res = initialize();
-    Logger.log('initialize() 返回: ' + res);
+    Logger.log("initialize() 返回: " + res);
   } catch (e) {
-    Logger.log('initialize() 執行失敗: ' + e + (e.stack ? '\n' + e.stack : ''));
+    Logger.log("initialize() 執行失敗: " + e + (e.stack ? "\n" + e.stack : ""));
   }
 
   try {
     ensureSsAvailable_();
-    const logSheet = ss.getSheetByName('LOG');
-    if (!logSheet) { Logger.log('找不到 LOG 工作表'); return; }
+    const logSheet = ss.getSheetByName("LOG");
+    if (!logSheet) {
+      Logger.log("找不到 LOG 工作表");
+      return;
+    }
     const lastRow = logSheet.getLastRow();
-    if (lastRow < 1) { Logger.log('LOG 表沒有資料'); return; }
+    if (lastRow < 1) {
+      Logger.log("LOG 表沒有資料");
+      return;
+    }
     const startRow = Math.max(1, lastRow - 20 + 1);
     const rowCount = Math.max(1, Math.min(20, lastRow - startRow + 1));
     const colCount = Math.min(2, logSheet.getLastColumn());
     const data = logSheet.getRange(startRow, 1, rowCount, colCount).getValues();
-    Logger.log('LOG 表最近紀錄: ' + JSON.stringify(data));
+    Logger.log("LOG 表最近紀錄: " + JSON.stringify(data));
   } catch (e) {
-    Logger.log('讀取 LOG 表失敗: ' + e + (e.stack ? '\n' + e.stack : ''));
+    Logger.log("讀取 LOG 表失敗: " + e + (e.stack ? "\n" + e.stack : ""));
   }
 }
 /**
  * LINE Bot Assistant
- * Version: 4.8.0 (Aggressive Formatting)
- * Last Updated: 2025-12-24
+ * Version: 4.9.0 (Persona Transitions)
+ * Last Updated: 2026-01-06
  * Key changes:
  * - [Fix] 暴力排版：中文標點後強制插入空行 (不依賴 AI 換行)
  * - [Deploy] 使用 Clasp 自動部署至 Google Apps Script
@@ -49,38 +55,40 @@ const SHEET_NAMES = {
   LOG: "LOG",
   PROMPT: "Prompt",
   LAST_CONVERSATION: "上次對話",
-  INDIVIDUAL_MODE: "個別模式"
+  INDIVIDUAL_MODE: "個別模式",
 };
 
 const TIMEOUT = {
-  API_FETCH: 20000,   // 20 seconds
-  LINE_API: 10000     // 10 seconds
+  API_FETCH: 20000, // 20 seconds
+  LINE_API: 10000, // 10 seconds
 };
 
 const RETRY = {
   MAX_ATTEMPTS: 2,
-  DELAY: 1000
+  DELAY: 1000,
 };
 
 const MAX_OUTPUT_TOKENS = 500;
-const HISTORY_PAIR_LIMIT = 10;           // 只保留最近 10 對 (user+assistant)
+const HISTORY_PAIR_LIMIT = 10; // 只保留最近 10 對 (user+assistant)
 const HISTORY_LENGTH_LIMIT = HISTORY_PAIR_LIMIT * 2;
 const CACHE_TTL_SEC = 3600; // 1 hour for history cache
 const PROMPT_CACHE_EXPIRATION = 1800; // 30 min
 
 const CACHE_KEYS = {
-  GLOBAL_BASE_PROMPT: 'globalBasePrompt_C1',
-  SPECIFIC_PROMPT_PREFIX: 'specificPrompt_B1_',
-  HISTORY_PREFIX: 'hist:', // + ns:promptNum:contextId
-  PROVIDER: 'provider_A1',
-  MODEL: 'model_A2'
+  GLOBAL_BASE_PROMPT: "globalBasePrompt_C1",
+  SPECIFIC_PROMPT_PREFIX: "specificPrompt_B1_",
+  HISTORY_PREFIX: "hist:", // + ns:promptNum:contextId
+  PROVIDER: "provider_A1",
+  MODEL: "model_A2",
 };
 
-const HIST_NS_PROP_KEY = 'HIST_NS_V1';
+const HIST_NS_PROP_KEY = "HIST_NS_V1";
 const LINE_TEXT_MAX = 4000;
 
 // ===== Push 開關與限額守門 =====
-const ALLOW_PUSH = (PropertiesService.getScriptProperties().getProperty("ALLOW_PUSH") || "false") === "true";
+const ALLOW_PUSH =
+  (PropertiesService.getScriptProperties().getProperty("ALLOW_PUSH") ||
+    "false") === "true";
 
 var LOG_BUFFER = []; // 用來暫存日誌
 
@@ -94,14 +102,22 @@ try {
   ss = null;
 }
 if (!ss) {
-  const fallbackId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  const fallbackId =
+    PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID");
   if (fallbackId) {
-    try { ss = SpreadsheetApp.openById(fallbackId); } catch (e) { ss = null; }
+    try {
+      ss = SpreadsheetApp.openById(fallbackId);
+    } catch (e) {
+      ss = null;
+    }
   }
 }
 
 function ensureSsAvailable_() {
-  if (!ss) throw new Error('Active spreadsheet not found. Open this script from the target Google Sheet or set SPREADSHEET_ID in Script Properties.');
+  if (!ss)
+    throw new Error(
+      "Active spreadsheet not found. Open this script from the target Google Sheet or set SPREADSHEET_ID in Script Properties."
+    );
 }
 // Note: initialization (sheet creation / maintenance) is handled by initialize()
 // and should not run at module load time to avoid repeated execution when
@@ -114,19 +130,34 @@ function ensureSsAvailable_() {
 
 function handleMessage(userMessage, userId, replyToken, contextId) {
   try {
-    if (!userMessage || typeof userMessage !== 'string' || userMessage.trim() === "") {
+    if (
+      !userMessage ||
+      typeof userMessage !== "string" ||
+      userMessage.trim() === ""
+    ) {
       writeLog(`空訊息，略過: contextId=${contextId}, userId=${userId}`);
       return;
     }
 
     const trimmedMessage = userMessage.trim();
-    writeLog(`處理訊息: '${trimmedMessage.substring(0, 50)}...' in context ${contextId}`);
+    writeLog(
+      `處理訊息: '${trimmedMessage.substring(
+        0,
+        50
+      )}...' in context ${contextId}`
+    );
 
     if (isCommand(trimmedMessage)) {
       const response = handleCommand(trimmedMessage, userId, contextId);
       replyMessage(replyToken, response);
-      if (trimmedMessage.toLowerCase() !== '/reset') {
-        queueRecord({ userId: userId, text: trimmedMessage, groupId: contextId, role: 'user', resetFlag: '' });
+      if (trimmedMessage.toLowerCase() !== "/reset") {
+        queueRecord({
+          userId: userId,
+          text: trimmedMessage,
+          groupId: contextId,
+          role: "user",
+          resetFlag: "",
+        });
       }
       return;
     }
@@ -136,7 +167,9 @@ function handleMessage(userMessage, userId, replyToken, contextId) {
       showLoadingAnimation(userId, 15);
     }
 
-    const isLongOrComplex = trimmedMessage.length > 300 || /分析|總結|產生圖|抓網址|翻譯/i.test(trimmedMessage);
+    const isLongOrComplex =
+      trimmedMessage.length > 300 ||
+      /分析|總結|產生圖|抓網址|翻譯/i.test(trimmedMessage);
     let usedReply = false;
     if (isLongOrComplex) {
       replyMessage(replyToken, "處理中，請稍候...");
@@ -148,16 +181,20 @@ function handleMessage(userMessage, userId, replyToken, contextId) {
     const combinedPrompt = `${basePrompt}\n\n${specificPrompt}`.trim();
 
     const currentHistory = getHistoryFromCacheOrSheet(contextId);
-    writeLog(`獲取 context ${contextId} 的歷史: ${currentHistory.length} 條 (上限 ${HISTORY_LENGTH_LIMIT})`);
+    writeLog(
+      `獲取 context ${contextId} 的歷史: ${currentHistory.length} 條 (上限 ${HISTORY_LENGTH_LIMIT})`
+    );
 
     const userMsgObj = { role: "user", content: trimmedMessage };
     const messages = [
       { role: "system", content: combinedPrompt },
       ...currentHistory,
-      userMsgObj
+      userMsgObj,
     ];
 
-    writeLog(`呼叫 AI API，${messages.length} 條訊息 (含 system) for context ${contextId}`);
+    writeLog(
+      `呼叫 AI API，${messages.length} 條訊息 (含 system) for context ${contextId}`
+    );
     const start = Date.now();
     const assistantResponseText = callChatGPTWithRetry(messages);
     const took = Date.now() - start;
@@ -179,10 +216,27 @@ function handleMessage(userMessage, userId, replyToken, contextId) {
         if (!usedReply) replyMessage(replyToken, finalText);
       }
 
-      queueRecord({ userId: userId, text: trimmedMessage, groupId: contextId, role: 'user', resetFlag: '' });
-      queueRecord({ userId: userId, text: finalText, groupId: contextId, role: 'assistant', resetFlag: '' });
-      const assistantMsgObj = { role: 'assistant', content: finalText };
-      updateHistorySheetAndCache(contextId, currentHistory, userMsgObj, assistantMsgObj);
+      queueRecord({
+        userId: userId,
+        text: trimmedMessage,
+        groupId: contextId,
+        role: "user",
+        resetFlag: "",
+      });
+      queueRecord({
+        userId: userId,
+        text: finalText,
+        groupId: contextId,
+        role: "assistant",
+        resetFlag: "",
+      });
+      const assistantMsgObj = { role: "assistant", content: finalText };
+      updateHistorySheetAndCache(
+        contextId,
+        currentHistory,
+        userMsgObj,
+        assistantMsgObj
+      );
     } else {
       writeLog(`AI API 調用失敗或回應為空 for context ${contextId}`);
       const errorMsg = "抱歉，暫時無法處理你的請求，稍後再試。";
@@ -191,11 +245,27 @@ function handleMessage(userMessage, userId, replyToken, contextId) {
       } else if (contextId === userId && canUsePush(contextId, userId)) {
         pushMessage(userId, errorMsg);
       }
-      queueRecord({ userId: userId, text: trimmedMessage, groupId: contextId, role: 'user', resetFlag: '' });
-      queueRecord({ userId: userId, text: "[AI FAILED]", groupId: contextId, role: 'assistant', resetFlag: '' });
+      queueRecord({
+        userId: userId,
+        text: trimmedMessage,
+        groupId: contextId,
+        role: "user",
+        resetFlag: "",
+      });
+      queueRecord({
+        userId: userId,
+        text: "[AI FAILED]",
+        groupId: contextId,
+        role: "assistant",
+        resetFlag: "",
+      });
     }
   } catch (error) {
-    writeLog("處理訊息錯誤 (handleMessage): " + error + (error.stack ? "\nStack: " + error.stack : ""));
+    writeLog(
+      "處理訊息錯誤 (handleMessage): " +
+        error +
+        (error.stack ? "\nStack: " + error.stack : "")
+    );
     try {
       const errorMsg = "哎呀，處理你的訊息時出了問題，稍後再試。";
       if (replyToken) {
@@ -228,34 +298,54 @@ function getHistoryFromCacheOrSheet(contextId) {
   const historyFromSheet = getHistoryFromSheet(contextId);
   const jsonStr = JSON.stringify(historyFromSheet);
   safeJsonPutToCache_(cache, cacheKey, jsonStr, CACHE_TTL_SEC);
-  writeLog(`從工作表讀取並快取歷史 for ${contextId}: ${historyFromSheet.length} 條`);
+  writeLog(
+    `從工作表讀取並快取歷史 for ${contextId}: ${historyFromSheet.length} 條`
+  );
   return historyFromSheet;
 }
 
 function getHistoryFromSheet(contextId) {
   const functionName = "getHistoryFromSheet";
   try {
-    let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LAST_CONVERSATION);
+    let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.LAST_CONVERSATION
+    );
     if (!sheet) {
-      writeLog(`${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，嘗試初始化`);
+      writeLog(
+        `${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，嘗試初始化`
+      );
       initialize();
-      sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LAST_CONVERSATION);
-      if (!sheet) throw new Error(`工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在且無法自動創建`);
+      sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+        SHEET_NAMES.LAST_CONVERSATION
+      );
+      if (!sheet)
+        throw new Error(
+          `工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在且無法自動創建`
+        );
       return [];
     }
 
-    const textFinder = sheet.getRange("A:A").createTextFinder(contextId).matchEntireCell(true);
+    const textFinder = sheet
+      .getRange("A:A")
+      .createTextFinder(contextId)
+      .matchEntireCell(true);
     const foundCell = textFinder.findNext();
 
     if (foundCell) {
       const row = foundCell.getRow();
       const historyJson = sheet.getRange(row, 2).getValue();
-      if (historyJson && typeof historyJson === 'string' && historyJson.trim() !== "") {
+      if (
+        historyJson &&
+        typeof historyJson === "string" &&
+        historyJson.trim() !== ""
+      ) {
         try {
           const history = JSON.parse(historyJson);
           return Array.isArray(history) ? history : [];
         } catch (parseError) {
-          writeLog(`${functionName}: 解析 context ${contextId} (行 ${row}) JSON 失敗: ${parseError}.`);
+          writeLog(
+            `${functionName}: 解析 context ${contextId} (行 ${row}) JSON 失敗: ${parseError}.`
+          );
           return [];
         }
       } else {
@@ -270,25 +360,43 @@ function getHistoryFromSheet(contextId) {
   }
 }
 
-function updateHistorySheetAndCache(contextId, previousHistory, userMessage, assistantMessage) {
+function updateHistorySheetAndCache(
+  contextId,
+  previousHistory,
+  userMessage,
+  assistantMessage
+) {
   const functionName = "updateHistorySheetAndCache";
   return withLock_(() => {
     try {
-      let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LAST_CONVERSATION);
+      let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+        SHEET_NAMES.LAST_CONVERSATION
+      );
       if (!sheet) {
-        writeLog(`${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，嘗試初始化`);
+        writeLog(
+          `${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，嘗試初始化`
+        );
         initialize();
-        sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LAST_CONVERSATION);
-        if (!sheet) throw new Error(`工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在且無法自動創建`);
+        sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+          SHEET_NAMES.LAST_CONVERSATION
+        );
+        if (!sheet)
+          throw new Error(
+            `工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在且無法自動創建`
+          );
       }
       let base = Array.isArray(previousHistory) ? previousHistory.slice() : [];
       if (base.length % 2 !== 0) base.shift();
       let newHistory = [...base, userMessage, assistantMessage];
       while (newHistory.length > HISTORY_LENGTH_LIMIT) {
-        newHistory.shift(); newHistory.shift();
+        newHistory.shift();
+        newHistory.shift();
       }
       const newHistoryJson = JSON.stringify(newHistory);
-      const textFinder = sheet.getRange("A:A").createTextFinder(contextId).matchEntireCell(true);
+      const textFinder = sheet
+        .getRange("A:A")
+        .createTextFinder(contextId)
+        .matchEntireCell(true);
       const foundCell = textFinder.findNext();
       if (foundCell) {
         sheet.getRange(foundCell.getRow(), 2).setValue(newHistoryJson);
@@ -297,7 +405,12 @@ function updateHistorySheetAndCache(contextId, previousHistory, userMessage, ass
         writeLog(`${functionName}: 為 context ${contextId} 新增了歷史行`);
       }
       const cacheKey = buildHistoryKey_(contextId);
-      safeJsonPutToCache_(CacheService.getScriptCache(), cacheKey, newHistoryJson, CACHE_TTL_SEC);
+      safeJsonPutToCache_(
+        CacheService.getScriptCache(),
+        cacheKey,
+        newHistoryJson,
+        CACHE_TTL_SEC
+      );
     } catch (error) {
       writeLog(`${functionName}: 更新歷史錯誤 for ${contextId}: ${error}`);
     }
@@ -308,19 +421,30 @@ function clearHistorySheetAndCache(contextId) {
   const functionName = "clearHistorySheetAndCache";
   return withLock_(() => {
     try {
-      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LAST_CONVERSATION);
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+        SHEET_NAMES.LAST_CONVERSATION
+      );
       if (!sheet) {
-        writeLog(`${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，無法清除 for ${contextId}`);
+        writeLog(
+          `${functionName}: 工作表 ${SHEET_NAMES.LAST_CONVERSATION} 不存在，無法清除 for ${contextId}`
+        );
         return;
       }
-      const textFinder = sheet.getRange("A:A").createTextFinder(contextId).matchEntireCell(true);
+      const textFinder = sheet
+        .getRange("A:A")
+        .createTextFinder(contextId)
+        .matchEntireCell(true);
       const foundCell = textFinder.findNext();
       if (foundCell) {
         const row = foundCell.getRow();
         sheet.getRange(row, 2).clearContent();
-        writeLog(`${functionName}: 清除了 context ${contextId} (行 ${row}) 的 Sheet 歷史`);
+        writeLog(
+          `${functionName}: 清除了 context ${contextId} (行 ${row}) 的 Sheet 歷史`
+        );
       } else {
-        writeLog(`${functionName}: 未找到 context ${contextId}，無需清除 Sheet 歷史`);
+        writeLog(
+          `${functionName}: 未找到 context ${contextId}，無需清除 Sheet 歷史`
+        );
       }
       const cache = CacheService.getScriptCache();
       const cacheKey = buildHistoryKey_(contextId);
@@ -341,13 +465,19 @@ function getProviderFromSheet() {
   const hit = cache.get(CACHE_KEYS.PROVIDER);
   if (hit) return hit;
 
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
-  if (!sh) throw new Error('找不到工作表 Prompt');
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+    SHEET_NAMES.PROMPT
+  );
+  if (!sh) throw new Error("找不到工作表 Prompt");
 
-  let provider = String(sh.getRange('A1').getValue() || '').trim().toUpperCase();
-  if (provider !== 'XAI' && provider !== 'OPENROUTER') {
-    provider = 'XAI';
-    try { sh.getRange('A1').setValue(provider); } catch (_) {}
+  let provider = String(sh.getRange("A1").getValue() || "")
+    .trim()
+    .toUpperCase();
+  if (provider !== "XAI" && provider !== "OPENROUTER") {
+    provider = "XAI";
+    try {
+      sh.getRange("A1").setValue(provider);
+    } catch (_) {}
   }
   cache.put(CACHE_KEYS.PROVIDER, provider, PROMPT_CACHE_EXPIRATION);
   return provider;
@@ -358,14 +488,19 @@ function getModelNameFromSheet() {
   const hit = cache.get(CACHE_KEYS.MODEL);
   if (hit) return hit;
 
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
-  if (!sh) throw new Error('找不到工作表 Prompt');
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+    SHEET_NAMES.PROMPT
+  );
+  if (!sh) throw new Error("找不到工作表 Prompt");
 
-  let model = String(sh.getRange('A2').getValue() || '').trim();
+  let model = String(sh.getRange("A2").getValue() || "").trim();
   const provider = getProviderFromSheet();
   if (!model) {
-    model = (provider === 'OPENROUTER') ? 'openai/gpt-4o-mini' : 'x-ai/grok-3-beta';
-    try { sh.getRange('A2').setValue(model); } catch (_) {}
+    model =
+      provider === "OPENROUTER" ? "openai/gpt-4o-mini" : "x-ai/grok-3-beta";
+    try {
+      sh.getRange("A2").setValue(model);
+    } catch (_) {}
   }
   cache.put(CACHE_KEYS.MODEL, model, PROMPT_CACHE_EXPIRATION);
   return model;
@@ -382,7 +517,7 @@ function callChatGPTWithRetry(messages) {
     attempts++;
     try {
       const response = callChatApi(messages);
-      if (response && response.trim() !== '') {
+      if (response && response.trim() !== "") {
         writeLog(`AI API 成功 (嘗試 ${attempts})`);
         return response;
       } else {
@@ -417,35 +552,39 @@ function callChatApi(messages) {
     url = "https://api.x.ai/v1/chat/completions";
     if (!apiKey) throw new Error("xAI API key is missing.");
     specificHeaders = {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json"
+      Authorization: "Bearer " + apiKey,
+      "Content-Type": "application/json",
     };
   } else {
     apiKey = getOpenRouterKey();
     url = "https://openrouter.ai/api/v1/chat/completions";
     if (!apiKey) throw new Error("OpenRouter API key is missing.");
-    let siteUrl = PropertiesService.getScriptProperties().getProperty("YOUR_SITE_URL") || "<YOUR_SITE_URL_DEFAULT>";
-    let appName = PropertiesService.getScriptProperties().getProperty("YOUR_SITE_NAME") || "<YOUR_APP_NAME_DEFAULT>";
+    let siteUrl =
+      PropertiesService.getScriptProperties().getProperty("YOUR_SITE_URL") ||
+      "<YOUR_SITE_URL_DEFAULT>";
+    let appName =
+      PropertiesService.getScriptProperties().getProperty("YOUR_SITE_NAME") ||
+      "<YOUR_APP_NAME_DEFAULT>";
     specificHeaders = {
-      "Authorization": "Bearer " + apiKey,
+      Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
       "HTTP-Referer": siteUrl,
-      "X-Title": appName
+      "X-Title": appName,
     };
   }
 
   const modelName = getModelNameFromSheet(); // ← A2
   const payload = {
     model: modelName,
-    messages: messages.map(m => ({ role: m.role, content: m.content })),
-    max_tokens: MAX_OUTPUT_TOKENS
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    max_tokens: MAX_OUTPUT_TOKENS,
   };
 
   const options = {
     method: "post",
     headers: specificHeaders,
     payload: JSON.stringify(payload),
-    muteHttpExceptions: true
+    muteHttpExceptions: true,
   };
 
   var _t0 = Date.now();
@@ -471,9 +610,16 @@ function callChatApi(messages) {
       const json = JSON.parse(responseText);
       if (json.error) {
         writeLog(`${provider} API 錯誤: ${JSON.stringify(json.error)}`);
-        throw new Error(json.error.message || `Unknown API error from ${provider}`);
+        throw new Error(
+          json.error.message || `Unknown API error from ${provider}`
+        );
       }
-      if (json.choices && json.choices[0] && json.choices[0].message && typeof json.choices[0].message.content === 'string') {
+      if (
+        json.choices &&
+        json.choices[0] &&
+        json.choices[0].message &&
+        typeof json.choices[0].message.content === "string"
+      ) {
         const result = json.choices[0].message.content.trim();
         if (result) {
           writeLog(`${provider} API 回應長度: ${result.length}`);
@@ -483,7 +629,9 @@ function callChatApi(messages) {
           throw new Error("Empty content");
         }
       } else {
-        writeLog(`${provider} API 回應格式錯誤: ${responseText.substring(0, 200)}...`);
+        writeLog(
+          `${provider} API 回應格式錯誤: ${responseText.substring(0, 200)}...`
+        );
         throw new Error(`Invalid response format from ${provider}`);
       }
     } catch (parseError) {
@@ -491,11 +639,19 @@ function callChatApi(messages) {
       throw new Error(`Parse error (${provider}): ${parseError.message}`);
     }
   } else {
-    writeLog(`${provider} API 失敗，狀態碼: ${responseCode}, 內容: ${responseText.substring(0, 200)}...`);
+    writeLog(
+      `${provider} API 失敗，狀態碼: ${responseCode}, 內容: ${responseText.substring(
+        0,
+        200
+      )}...`
+    );
     let errorMsg = `${provider} API Error ${responseCode}`;
-    if (responseCode === 429) errorMsg += ": Rate limit exceeded or spending limit issue.";
-    else if (responseCode === 401) errorMsg += ": Unauthorized (Check API Key).";
-    else if (responseCode === 400) errorMsg += ": Bad Request (Check payload/model).";
+    if (responseCode === 429)
+      errorMsg += ": Rate limit exceeded or spending limit issue.";
+    else if (responseCode === 401)
+      errorMsg += ": Unauthorized (Check API Key).";
+    else if (responseCode === 400)
+      errorMsg += ": Bad Request (Check payload/model).";
     errorMsg += ` ${responseText.substring(0, 100)}...`;
     throw new Error(errorMsg);
   }
@@ -506,38 +662,63 @@ function callChatApi(messages) {
 // =========================================================================
 
 function isCommand(text) {
-  return typeof text === 'string' && text.trim().startsWith('/');
+  return typeof text === "string" && text.trim().startsWith("/");
 }
 
 function handleCommand(command, userId, contextId) {
   let response = "";
   try {
     const commandClean = command.trim().toLowerCase();
-    writeLog(`處理指令 '${commandClean}' from user ${userId} in context ${contextId}`);
+    writeLog(
+      `處理指令 '${commandClean}' from user ${userId} in context ${contextId}`
+    );
 
     if (commandClean === "/help") {
       response = getHelpText();
     } else if (commandClean === "/reset") {
       writeLog(`用戶 ${userId} 在 context ${contextId} 執行 /reset`);
       clearHistorySheetAndCache(contextId);
-      queueRecord({ userId: userId, text: command.trim(), groupId: contextId, role: 'user', resetFlag: 'TRUE' });
+      queueRecord({
+        userId: userId,
+        text: command.trim(),
+        groupId: contextId,
+        role: "user",
+        resetFlag: "TRUE",
+      });
       response = "對話歷史已重置。下次訊息將從新開始。\n(永久紀錄不受影響)";
     } else if (commandClean === "/clear") {
       const clearedKeys = clearPromptCache(); // 會連 provider/model 一起清
       bumpHistNs_();
-      writeLog(`用戶 ${userId} 清除了 Prompt/Provider/Model 與歷史快取命名空間 in context ${contextId}. Cleared: ${clearedKeys.join(', ') || 'None'}`);
+      writeLog(
+        `用戶 ${userId} 清除了 Prompt/Provider/Model 與歷史快取命名空間 in context ${contextId}. Cleared: ${
+          clearedKeys.join(", ") || "None"
+        }`
+      );
       response = `Prompt/Provider/Model 快取已清除。下次讀取將從工作表重新載入。`;
     } else if (commandClean === "/p") {
       response = getPromptList();
-    } else if (commandClean.startsWith('/p') && (commandClean.length > 2 || commandClean.includes(' '))) {
+    } else if (
+      commandClean.startsWith("/p") &&
+      (commandClean.length > 2 || commandClean.includes(" "))
+    ) {
       response = handlePromptChange(commandClean, userId, contextId);
-      if (response.startsWith("已切換至提示詞：")) {
+
+      // 修正判斷字串與 handlePromptChange 回傳內容一致
+      if (response.startsWith("✅")) {
+        // 從回應文字中提取新的人格名稱
+        let promptName = "新的人格模式";
+        const nameMatch = response.match(/模式：(.+?) \(/);
+        if (nameMatch) promptName = nameMatch[1];
+
         const match = response.match(/編號 (\d+)/);
         if (match && match[1]) {
           const newPromptNumber = parseInt(match[1], 10);
           clearSpecificPromptCache(newPromptNumber);
         }
         bumpHistNs_();
+
+        // 注入「導演紙條」轉場指令，解決上下文慣性
+        injectSystemMarker(contextId, promptName);
       }
     } else {
       response = `未知指令：'${command.trim()}'。\n輸入 /help 查看可用指令。`;
@@ -562,19 +743,21 @@ function getHelpText() {
     "/p [編號] : 切換到指定編號的個別模式（保留對話記錄）",
     "/clear : 清除所有快取（不刪除個別模式記錄）",
     "-------------------",
-    "💡 個別模式會記住每個對話（群組/個人）的專屬設定"
+    "💡 個別模式會記住每個對話（群組/個人）的專屬設定",
   ].join("\n");
 }
 
 function handlePromptChange(command, userId, contextId) {
   try {
-    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
+    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.PROMPT
+    );
     if (!promptSheet) throw new Error(`找不到工作表 ${SHEET_NAMES.PROMPT}`);
 
     let promptNumberStr = "";
-    if (command.startsWith('/p ')) {
+    if (command.startsWith("/p ")) {
       promptNumberStr = command.substring(3).trim();
-    } else if (command.length > 2 && !command.includes(' ')) {
+    } else if (command.length > 2 && !command.includes(" ")) {
       promptNumberStr = command.substring(2).trim();
     } else {
       return "指令格式錯誤，請使用 /p[編號] 或 /p [編號]。";
@@ -598,7 +781,8 @@ function handlePromptChange(command, userId, contextId) {
     for (const row of promptData) {
       if (row[0] && !isNaN(Number(row[0])) && Number(row[0]) === promptNumber) {
         isValidNumber = true;
-        promptName = (row[1] && String(row[1]).trim()) ? String(row[1]).trim() : promptName;
+        promptName =
+          row[1] && String(row[1]).trim() ? String(row[1]).trim() : promptName;
         break;
       }
     }
@@ -609,12 +793,14 @@ function handlePromptChange(command, userId, contextId) {
 
     // ========== 寫入「個別模式」而非 Prompt!B1 ==========
     setIndividualMode(contextId, promptNumber, promptName);
-    
+
     // ========== 不清除歷史（保留對話記錄） ==========
     // 清除快取以讀取新的 Prompt，但保留歷史
     clearPromptCache();
-    
-    writeLog(`用戶 ${userId} 在 context ${contextId} 切換個別模式為 #${promptNumber}: ${promptName}`);
+
+    writeLog(
+      `用戶 ${userId} 在 context ${contextId} 切換個別模式為 #${promptNumber}: ${promptName}`
+    );
     return `✅ 已切換至個別模式：${promptName} (編號 ${promptNumber})`;
   } catch (error) {
     writeLog(`切換提示詞錯誤 (指令: ${command}): ${error}`);
@@ -624,7 +810,9 @@ function handlePromptChange(command, userId, contextId) {
 
 function getPromptList() {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.PROMPT
+    );
     if (!sheet) throw new Error(`找不到工作表 ${SHEET_NAMES.PROMPT}`);
 
     const lastRow = sheet.getLastRow();
@@ -636,7 +824,13 @@ function getPromptList() {
     const data = sheet.getRange("A4:B" + lastRow).getValues();
     let prompts = [];
     for (const row of data) {
-      if (row[0] && !isNaN(Number(row[0])) && Number(row[0]) > 0 && row[1] && String(row[1]).trim()) {
+      if (
+        row[0] &&
+        !isNaN(Number(row[0])) &&
+        Number(row[0]) > 0 &&
+        row[1] &&
+        String(row[1]).trim()
+      ) {
         prompts.push(`${Number(row[0])}. ${String(row[1]).trim()}`);
       }
     }
@@ -662,15 +856,25 @@ function getGlobalBasePrompt() {
   if (cachedPrompt) return cachedPrompt;
 
   try {
-    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
+    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.PROMPT
+    );
     if (!promptSheet) throw new Error(`找不到工作表 ${SHEET_NAMES.PROMPT}`);
     let basePrompt = promptSheet.getRange("C1").getValue();
-    if (!basePrompt || typeof basePrompt !== 'string' || basePrompt.trim() === "") {
+    if (
+      !basePrompt ||
+      typeof basePrompt !== "string" ||
+      basePrompt.trim() === ""
+    ) {
       writeLog("Prompt!C1 為空或無效，使用預設基礎提示詞。");
       basePrompt = "你是一個友善的 AI 助理。";
     }
     const promptToCache = basePrompt.trim();
-    cache.put(CACHE_KEYS.GLOBAL_BASE_PROMPT, promptToCache, PROMPT_CACHE_EXPIRATION);
+    cache.put(
+      CACHE_KEYS.GLOBAL_BASE_PROMPT,
+      promptToCache,
+      PROMPT_CACHE_EXPIRATION
+    );
     writeLog("從工作表讀取並快取基礎提示詞 (C1)");
     return promptToCache;
   } catch (error) {
@@ -687,7 +891,9 @@ function getFullPrompt(contextId = null) {
   if (cachedPrompt) return cachedPrompt;
 
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.PROMPT
+    );
     if (!sheet) throw new Error(`找不到工作表 ${SHEET_NAMES.PROMPT}`);
     writeLog(`嘗試從工作表獲取特定提示詞，編號 #${customPromptNumber}`);
 
@@ -705,7 +911,8 @@ function getFullPrompt(contextId = null) {
 
     for (const row of data) {
       if (row[0] && Number(row[0]) === customPromptNumber) {
-        promptName = (row[1] && String(row[1]).trim()) ? String(row[1]).trim() : promptName;
+        promptName =
+          row[1] && String(row[1]).trim() ? String(row[1]).trim() : promptName;
         specificPromptContent = row[2] || "";
         break;
       }
@@ -716,7 +923,9 @@ function getFullPrompt(contextId = null) {
       writeLog(`找到特定提示詞 #${customPromptNumber}: ${promptName}`);
       promptToCache = specificPromptContent.trim();
     } else {
-      writeLog(`未找到提示詞 #${customPromptNumber} 的有效內容，使用預設特定提示詞。`);
+      writeLog(
+        `未找到提示詞 #${customPromptNumber} 的有效內容，使用預設特定提示詞。`
+      );
       promptToCache = "請根據對話上下文，以自然、友善的語氣回應。";
     }
 
@@ -734,10 +943,15 @@ function getFullPrompt(contextId = null) {
  */
 function getIndividualMode(contextId) {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.INDIVIDUAL_MODE);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.INDIVIDUAL_MODE
+    );
     if (!sheet) return null;
 
-    const textFinder = sheet.getRange("A:A").createTextFinder(contextId).matchEntireCell(true);
+    const textFinder = sheet
+      .getRange("A:A")
+      .createTextFinder(contextId)
+      .matchEntireCell(true);
     const foundCell = textFinder.findNext();
 
     if (foundCell) {
@@ -746,8 +960,8 @@ function getIndividualMode(contextId) {
       return {
         contextId: data[0],
         promptNumber: Number(data[1]) || 1,
-        modeName: data[2] || '',
-        lastUpdated: data[3] || ''
+        modeName: data[2] || "",
+        lastUpdated: data[3] || "",
       };
     }
     return null;
@@ -760,28 +974,47 @@ function getIndividualMode(contextId) {
 /**
  * 設定或更新「個別模式」頁的 contextId 記錄
  */
-function setIndividualMode(contextId, promptNumber, modeName = '') {
+function setIndividualMode(contextId, promptNumber, modeName = "") {
   return withLock_(() => {
     try {
-      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.INDIVIDUAL_MODE);
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+        SHEET_NAMES.INDIVIDUAL_MODE
+      );
       if (!sheet) {
-        writeLog(`setIndividualMode: 找不到 ${SHEET_NAMES.INDIVIDUAL_MODE} 工作表`);
+        writeLog(
+          `setIndividualMode: 找不到 ${SHEET_NAMES.INDIVIDUAL_MODE} 工作表`
+        );
         return;
       }
 
       const timestamp = formatDateTime(new Date());
-      const textFinder = sheet.getRange("A:A").createTextFinder(contextId).matchEntireCell(true);
+      const textFinder = sheet
+        .getRange("A:A")
+        .createTextFinder(contextId)
+        .matchEntireCell(true);
       const foundCell = textFinder.findNext();
 
       if (foundCell) {
         // 更新現有記錄
         const row = foundCell.getRow();
-        sheet.getRange(row, 2, 1, 3).setValues([[promptNumber, modeName, timestamp]]);
-        writeLog(`已更新 ${contextId.substring(0,8)}*** 的個別模式為 #${promptNumber}: ${modeName}`);
+        sheet
+          .getRange(row, 2, 1, 3)
+          .setValues([[promptNumber, modeName, timestamp]]);
+        writeLog(
+          `已更新 ${contextId.substring(
+            0,
+            8
+          )}*** 的個別模式為 #${promptNumber}: ${modeName}`
+        );
       } else {
         // 新增記錄
         sheet.appendRow([contextId, promptNumber, modeName, timestamp]);
-        writeLog(`已新增 ${contextId.substring(0,8)}*** 的個別模式 #${promptNumber}: ${modeName}`);
+        writeLog(
+          `已新增 ${contextId.substring(
+            0,
+            8
+          )}*** 的個別模式 #${promptNumber}: ${modeName}`
+        );
       }
     } catch (error) {
       writeLog(`setIndividualMode 錯誤 for ${contextId}: ${error}`);
@@ -798,19 +1031,23 @@ function getCurrentPromptNumber(contextId = null) {
     // 若有提供 contextId，先查「個別模式」
     if (contextId) {
       const individualMode = getIndividualMode(contextId);
-      if (individualMode && typeof individualMode.promptNumber === 'number') {
+      if (individualMode && typeof individualMode.promptNumber === "number") {
         return individualMode.promptNumber;
       }
     }
 
     // Fallback 到全域預設 (Prompt!B1)
-    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.PROMPT);
+    const promptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.PROMPT
+    );
     if (!promptSheet) {
       writeLog("獲取當前提示編號時找不到 Prompt 工作表，使用預設 1");
       return 1;
     }
-    const valB1 = promptSheet.getRange('B1').getValue();
-    return (typeof valB1 === 'number' && valB1 > 0 && Number.isInteger(valB1)) ? valB1 : 1;
+    const valB1 = promptSheet.getRange("B1").getValue();
+    return typeof valB1 === "number" && valB1 > 0 && Number.isInteger(valB1)
+      ? valB1
+      : 1;
   } catch (e) {
     writeLog("讀取 Prompt 編號失敗，使用預設編號 1: " + e);
     return 1;
@@ -845,7 +1082,11 @@ function clearPromptCache() {
 }
 
 function clearSpecificPromptCache(promptNumber) {
-  if (typeof promptNumber !== 'number' || promptNumber <= 0 || !Number.isInteger(promptNumber)) {
+  if (
+    typeof promptNumber !== "number" ||
+    promptNumber <= 0 ||
+    !Number.isInteger(promptNumber)
+  ) {
     writeLog(`無效的提示編號提供給 clearSpecificPromptCache: ${promptNumber}`);
     return;
   }
@@ -865,29 +1106,42 @@ function clearSpecificPromptCache(promptNumber) {
 
 function replyMessage(replyToken, text) {
   try {
-    if (!replyToken || !text || typeof text !== 'string' || text.trim() === "") {
-      writeLog(`空訊息或無 replyToken，跳過回覆 (Token: ${replyToken ? replyToken.substring(0,5)+'...' : 'N/A'})`);
+    if (
+      !replyToken ||
+      !text ||
+      typeof text !== "string" ||
+      text.trim() === ""
+    ) {
+      writeLog(
+        `空訊息或無 replyToken，跳過回覆 (Token: ${
+          replyToken ? replyToken.substring(0, 5) + "..." : "N/A"
+        })`
+      );
       return;
     }
     const trimmedText = text.trim();
-    writeLog(`準備回覆訊息 (Token: ${replyToken.substring(0,5)}...)，長度: ${trimmedText.length}`);
+    writeLog(
+      `準備回覆訊息 (Token: ${replyToken.substring(0, 5)}...)，長度: ${
+        trimmedText.length
+      }`
+    );
 
     const token = getToken();
     const segments = splitMessage(trimmedText).slice(0, 5);
-    const retryKey = buildRetryKey(replyToken + (segments[0] || ''));
+    const retryKey = buildRetryKey(replyToken + (segments[0] || ""));
     const url = "https://api.line.me/v2/bot/message/reply";
     const options = {
       method: "post",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + token,
-        "X-Line-Retry-Key": retryKey
+        Authorization: "Bearer " + token,
+        "X-Line-Retry-Key": retryKey,
       },
       payload: JSON.stringify({
         replyToken: replyToken,
-        messages: segments.map(msg => ({ type: "text", text: msg }))
+        messages: segments.map((msg) => ({ type: "text", text: msg })),
       }),
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
     };
 
     const response = UrlFetchApp.fetch(url, options);
@@ -896,7 +1150,9 @@ function replyMessage(replyToken, text) {
       writeLog(`LINE 回覆成功 (狀態碼 ${responseCode})`);
     } else {
       const responseContent = response.getContentText();
-      writeLog(`LINE 回覆失敗，狀態碼: ${responseCode}, 內容: ${responseContent}`);
+      writeLog(
+        `LINE 回覆失敗，狀態碼: ${responseCode}, 內容: ${responseContent}`
+      );
     }
   } catch (error) {
     writeLog("回覆 LINE 錯誤: " + error);
@@ -905,29 +1161,42 @@ function replyMessage(replyToken, text) {
 
 function pushMessage(userId, text) {
   try {
-    if (!ALLOW_PUSH) { writeLog("pushMessage: ALLOW_PUSH=false, 攔截"); return; }
-    if (!text || !text.trim()) { writeLog("pushMessage: 空內容，略過"); return; }
-    if (!underPushBudget()) { writeLog("PUSH 超過月度上限，已攔截"); return; }
+    if (!ALLOW_PUSH) {
+      writeLog("pushMessage: ALLOW_PUSH=false, 攔截");
+      return;
+    }
+    if (!text || !text.trim()) {
+      writeLog("pushMessage: 空內容，略過");
+      return;
+    }
+    if (!underPushBudget()) {
+      writeLog("PUSH 超過月度上限，已攔截");
+      return;
+    }
 
     const trimmedText = text.trim();
-    writeLog(`準備 push 訊息 to user ${userId.substring(0,6)}***，長度: ${trimmedText.length}`);
+    writeLog(
+      `準備 push 訊息 to user ${userId.substring(0, 6)}***，長度: ${
+        trimmedText.length
+      }`
+    );
 
     const token = getToken();
     const segments = splitMessage(trimmedText).slice(0, 5);
-    const retryKey = buildRetryKey(userId + (segments[0] || ''));
+    const retryKey = buildRetryKey(userId + (segments[0] || ""));
     const url = "https://api.line.me/v2/bot/message/push";
     const options = {
       method: "post",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + token,
-        "X-Line-Retry-Key": retryKey
+        Authorization: "Bearer " + token,
+        "X-Line-Retry-Key": retryKey,
       },
       payload: JSON.stringify({
         to: userId,
-        messages: segments.map(msg => ({ type: "text", text: msg }))
+        messages: segments.map((msg) => ({ type: "text", text: msg })),
       }),
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
     };
 
     const response = UrlFetchApp.fetch(url, options);
@@ -937,7 +1206,9 @@ function pushMessage(userId, text) {
       writeLog(`LINE push 成功 (狀態碼 ${responseCode})`);
     } else {
       const responseContent = response.getContentText();
-      writeLog(`LINE push 失敗，狀態碼: ${responseCode}, 內容: ${responseContent}`);
+      writeLog(
+        `LINE push 失敗，狀態碼: ${responseCode}, 內容: ${responseContent}`
+      );
     }
   } catch (error) {
     writeLog("push LINE 錯誤: " + error);
@@ -964,15 +1235,15 @@ function splitMessage(text) {
 
 function formatForLineMobile(text) {
   let processed = text;
-  
+
   // 暴力修正：
   // 1. 只要遇到中文句號(。)、問號(？)、驚嘆號(！)，後面直接強制接兩個換行 (\n\n)
   // 2. (?!\n\n) 是為了避免原本就已經有空行的地方被重複加成超級大空行
-  processed = processed.replace(/([。！？])(?!\n\n)/g, '$1\n\n');
+  processed = processed.replace(/([。！？])(?!\n\n)/g, "$1\n\n");
 
   // 3. 清理一下：如果連續換行超過 3 個（變得太空），縮減回 2 個
-  processed = processed.replace(/\n{3,}/g, '\n\n');
-  
+  processed = processed.replace(/\n{3,}/g, "\n\n");
+
   return processed.trim();
 }
 
@@ -985,13 +1256,30 @@ function buildRetryKey(seed) {
   var b = bytes.slice(0, 16);
   b[6] = (b[6] & 0x0f) | 0x40;
   b[8] = (b[8] & 0x3f) | 0x80;
-  function hex(n){ return ('0' + (n & 0xff).toString(16)).slice(-2); }
+  function hex(n) {
+    return ("0" + (n & 0xff).toString(16)).slice(-2);
+  }
   return (
-    hex(b[0])+hex(b[1])+hex(b[2])+hex(b[3]) + '-' +
-    hex(b[4])+hex(b[5]) + '-' +
-    hex(b[6])+hex(b[7]) + '-' +
-    hex(b[8])+hex(b[9]) + '-' +
-    hex(b[10])+hex(b[11])+hex(b[12])+hex(b[13])+hex(b[14])+hex(b[15])
+    hex(b[0]) +
+    hex(b[1]) +
+    hex(b[2]) +
+    hex(b[3]) +
+    "-" +
+    hex(b[4]) +
+    hex(b[5]) +
+    "-" +
+    hex(b[6]) +
+    hex(b[7]) +
+    "-" +
+    hex(b[8]) +
+    hex(b[9]) +
+    "-" +
+    hex(b[10]) +
+    hex(b[11]) +
+    hex(b[12]) +
+    hex(b[13]) +
+    hex(b[14]) +
+    hex(b[15])
   );
 }
 
@@ -1005,7 +1293,8 @@ function getToken() {
 }
 
 function getOpenRouterKey() {
-  const key = PropertiesService.getScriptProperties().getProperty("OPENROUTER_KEY");
+  const key =
+    PropertiesService.getScriptProperties().getProperty("OPENROUTER_KEY");
   if (!key) {
     writeLog("警告：未設定 OpenRouter API Key (OPENROUTER_KEY)");
     return null;
@@ -1014,7 +1303,8 @@ function getOpenRouterKey() {
 }
 
 function getXaiApiKey() {
-  const key = PropertiesService.getScriptProperties().getProperty("XAI_API_KEY");
+  const key =
+    PropertiesService.getScriptProperties().getProperty("XAI_API_KEY");
   if (!key) {
     writeLog("警告：未設定 xAI API Key (XAI_API_KEY)");
     return null;
@@ -1025,18 +1315,20 @@ function getXaiApiKey() {
 function writeLog(message) {
   const timestamp = formatDateTime(new Date());
   console.log(`[LOG] ${message}`);
-  if (typeof LOG_BUFFER !== 'undefined') {
+  if (typeof LOG_BUFFER !== "undefined") {
     LOG_BUFFER.push([timestamp, message]);
   }
 }
 
 function flushLogs() {
-  if (typeof LOG_BUFFER === 'undefined' || LOG_BUFFER.length === 0) return;
+  if (typeof LOG_BUFFER === "undefined" || LOG_BUFFER.length === 0) return;
   try {
     ensureSsAvailable_();
     const logSheet = ss.getSheetByName(SHEET_NAMES.LOG);
     if (logSheet) {
-      logSheet.getRange(logSheet.getLastRow() + 1, 1, LOG_BUFFER.length, 2).setValues(LOG_BUFFER);
+      logSheet
+        .getRange(logSheet.getLastRow() + 1, 1, LOG_BUFFER.length, 2)
+        .setValues(LOG_BUFFER);
     }
   } catch (e) {
     console.error("寫入日誌失敗: " + e);
@@ -1046,7 +1338,11 @@ function flushLogs() {
 
 function formatDateTime(date) {
   try {
-    return Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    return Utilities.formatDate(
+      date,
+      Session.getScriptTimeZone(),
+      "yyyy-MM-dd HH:mm:ss"
+    );
   } catch (e) {
     console.error("formatDateTime error:", e);
     return date.toISOString();
@@ -1064,7 +1360,11 @@ function queueRecord(recordData) {
     let keys = current ? JSON.parse(current) : [];
     keys.push(key);
     cache.put(listKey, JSON.stringify(keys), 600);
-    writeLog(`已加入暫存寫入隊列 (${recordData.role}): ${String(recordData.text).substring(0, 30)}...`);
+    writeLog(
+      `已加入暫存寫入隊列 (${recordData.role}): ${String(
+        recordData.text
+      ).substring(0, 30)}...`
+    );
   } catch (e) {
     writeLog(`queueRecord 發生錯誤: ${e}`);
   }
@@ -1076,22 +1376,33 @@ function flushQueuedRecords() {
       const cache = CacheService.getScriptCache();
       const listKey = "pendingRecordKeys";
       const current = cache.get(listKey);
-      if (!current) { return; }
+      if (!current) {
+        return;
+      }
       const keys = JSON.parse(current);
-      if (!Array.isArray(keys) || keys.length === 0) { return; }
+      if (!Array.isArray(keys) || keys.length === 0) {
+        return;
+      }
 
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const sheet = ss.getSheetByName(SHEET_NAMES.RECORDS);
       const now = formatDateTime(new Date());
       const rows = [];
 
-      keys.forEach(k => {
+      keys.forEach((k) => {
         const val = cache.get(k);
         if (!val) return;
         try {
           const r = JSON.parse(val);
           if (r && r.text && r.userId && r.groupId) {
-            rows.push([now, r.groupId, r.userId, r.text, r.role, r.resetFlag || '']);
+            rows.push([
+              now,
+              r.groupId,
+              r.userId,
+              r.text,
+              r.role,
+              r.resetFlag || "",
+            ]);
           }
         } catch (err) {
           writeLog(`flushQueuedRecords: 解析 key ${k} 錯誤: ${err}`);
@@ -1100,7 +1411,9 @@ function flushQueuedRecords() {
       });
 
       if (rows.length > 0) {
-        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+        sheet
+          .getRange(sheet.getLastRow() + 1, 1, rows.length, 6)
+          .setValues(rows);
         writeLog(`flushQueuedRecords: 已批次寫入 ${rows.length} 筆紀錄`);
       }
       cache.remove(listKey);
@@ -1119,20 +1432,27 @@ function showLoadingAnimation(userId, seconds) {
     const options = {
       method: "post",
       contentType: "application/json",
-      headers: { "Authorization": "Bearer " + getToken() },
+      headers: { Authorization: "Bearer " + getToken() },
       payload: JSON.stringify(payload),
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
     };
     UrlFetchApp.fetch(url, options);
-    writeLog(`Loading 動畫已啟動 ${duration}s for user ${userId.substring(0,6)}***`);
+    writeLog(
+      `Loading 動畫已啟動 ${duration}s for user ${userId.substring(0, 6)}***`
+    );
   } catch (e) {
     writeLog("showLoadingAnimation 發生錯誤: " + e);
   }
 }
 
 // Push 配額
-function canUsePush(contextId, userId){
-  return ALLOW_PUSH && contextId === userId && underPushBudget() && passUserCooldown(userId, 60);
+function canUsePush(contextId, userId) {
+  return (
+    ALLOW_PUSH &&
+    contextId === userId &&
+    underPushBudget() &&
+    passUserCooldown(userId, 60)
+  );
 }
 
 function underPushBudget() {
@@ -1140,44 +1460,59 @@ function underPushBudget() {
   const tz = Session.getScriptTimeZone();
   const ym = Utilities.formatDate(new Date(), tz, "yyyyMM");
   const curYm = props.getProperty("PUSH_MONTH") || "";
-  if (curYm !== ym) { props.setProperty("PUSH_MONTH", ym); props.setProperty("PUSH_COUNT", "0"); }
+  if (curYm !== ym) {
+    props.setProperty("PUSH_MONTH", ym);
+    props.setProperty("PUSH_COUNT", "0");
+  }
   const cap = Number(props.getProperty("PUSH_CAP") || "300");
   const used = Number(props.getProperty("PUSH_COUNT") || "0");
   return used < cap;
 }
-function incPushCount(n=1){
+function incPushCount(n = 1) {
   const props = PropertiesService.getScriptProperties();
   const used = Number(props.getProperty("PUSH_COUNT") || "0") + n;
   props.setProperty("PUSH_COUNT", String(used));
 }
-function passUserCooldown(userId, sec=60){
-  const c=CacheService.getScriptCache(); const k="pushCooldown_"+userId;
+function passUserCooldown(userId, sec = 60) {
+  const c = CacheService.getScriptCache();
+  const k = "pushCooldown_" + userId;
   if (c.get(k)) return false;
-  c.put(k, "1", sec); return true;
+  c.put(k, "1", sec);
+  return true;
 }
 
 // 命名空間 & 快取工具
 function getHistNs_() {
   const props = PropertiesService.getScriptProperties();
   const v = props.getProperty(HIST_NS_PROP_KEY);
-  if (!v) { props.setProperty(HIST_NS_PROP_KEY, '1'); return '1'; }
+  if (!v) {
+    props.setProperty(HIST_NS_PROP_KEY, "1");
+    return "1";
+  }
   return v;
 }
 function bumpHistNs_() {
   const props = PropertiesService.getScriptProperties();
-  const v = Number(getHistNs_() || '1') + 1;
+  const v = Number(getHistNs_() || "1") + 1;
   props.setProperty(HIST_NS_PROP_KEY, String(v));
   return String(v);
 }
 function buildHistoryKey_(contextId) {
   const promptNum = getCurrentPromptNumber(contextId); // ← 使用個別模式編號
-  return `${CACHE_KEYS.HISTORY_PREFIX}${getHistNs_()}:${promptNum}:${contextId}`;
+  return `${
+    CACHE_KEYS.HISTORY_PREFIX
+  }${getHistNs_()}:${promptNum}:${contextId}`;
 }
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
-  try { return fn(); }
-  finally { try { lock.releaseLock(); } catch(e) {} }
+  try {
+    return fn();
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (e) {}
+  }
 }
 function safeJsonPutToCache_(cache, key, jsonStr, ttl) {
   const MAX_BYTES = 90 * 1024;
@@ -1186,28 +1521,44 @@ function safeJsonPutToCache_(cache, key, jsonStr, ttl) {
     try {
       const arr = JSON.parse(s);
       if (Array.isArray(arr) && arr.length > 2) {
-        arr.shift(); arr.shift();
+        arr.shift();
+        arr.shift();
         s = JSON.stringify(arr);
       } else break;
-    } catch(_) { break; }
+    } catch (_) {
+      break;
+    }
   }
   cache.put(key, s, ttl);
 }
 
 // 維護：每天清 LOG、建立批次器
 function setupMaintenance() {
-  const functionName = 'cleanOldLogs';
+  const functionName = "cleanOldLogs";
   try {
     let triggerExists = false;
     const triggers = ScriptApp.getProjectTriggers();
     for (const trigger of triggers) {
       if (trigger.getHandlerFunction() === functionName) {
-        if (!triggerExists) { writeLog(`找到現有的 ${functionName} 觸發器 (ID: ${trigger.getUniqueId()})`); triggerExists = true; }
-        else { writeLog(`刪除重複的 ${functionName} 觸發器 (ID: ${trigger.getUniqueId()})`); ScriptApp.deleteTrigger(trigger); }
+        if (!triggerExists) {
+          writeLog(
+            `找到現有的 ${functionName} 觸發器 (ID: ${trigger.getUniqueId()})`
+          );
+          triggerExists = true;
+        } else {
+          writeLog(
+            `刪除重複的 ${functionName} 觸發器 (ID: ${trigger.getUniqueId()})`
+          );
+          ScriptApp.deleteTrigger(trigger);
+        }
       }
     }
     if (!triggerExists) {
-      ScriptApp.newTrigger(functionName).timeBased().everyDays(1).atHour(3).create();
+      ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .everyDays(1)
+        .atHour(3)
+        .create();
       writeLog(`已創建每日日誌清理任務 (${functionName} at ~3 AM)`);
       return `每日日誌清理任務 (${functionName}) 已創建。`;
     } else {
@@ -1220,35 +1571,44 @@ function setupMaintenance() {
 }
 
 function cleanOldLogs() {
-  const functionName = 'cleanOldLogs';
+  const functionName = "cleanOldLogs";
   try {
     writeLog(`--- 開始執行每日日誌清理 (${functionName}) ---`);
-    const logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES.LOG);
-    if (!logSheet) { 
-      writeLog(`${functionName}: 找不到 LOG 工作表，無法清理。`); 
-      return; 
+    const logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+      SHEET_NAMES.LOG
+    );
+    if (!logSheet) {
+      writeLog(`${functionName}: 找不到 LOG 工作表，無法清理。`);
+      return;
     }
 
     const KEEP_ROWS = 200; // 保留最近 200 列
     const lastRow = logSheet.getLastRow();
-    
-    if (lastRow <= KEEP_ROWS + 1) { // +1 因為第 1 行是表頭
-      writeLog(`${functionName}: LOG 表僅 ${lastRow} 行，無需清理（保留上限 ${KEEP_ROWS + 1}）。`);
+
+    if (lastRow <= KEEP_ROWS + 1) {
+      // +1 因為第 1 行是表頭
+      writeLog(
+        `${functionName}: LOG 表僅 ${lastRow} 行，無需清理（保留上限 ${
+          KEEP_ROWS + 1
+        }）。`
+      );
       return;
     }
 
     const rowsToDelete = lastRow - KEEP_ROWS - 1; // 要刪除的行數（-1 排除表頭）
-    
+
     // 從第 2 行開始刪除舊資料
     for (let i = 0; i < rowsToDelete; i++) {
-      try { 
+      try {
         logSheet.deleteRow(2); // 每次都刪第 2 行（因為刪除後會自動上移）
-      } catch (e) { 
-        writeLog(`${functionName}: 刪除第 2 行時出錯: ${e}`); 
+      } catch (e) {
+        writeLog(`${functionName}: 刪除第 2 行時出錯: ${e}`);
       }
     }
-    
-    writeLog(`${functionName}: 已刪除 ${rowsToDelete} 條舊日誌，保留最近 ${KEEP_ROWS} 列。`);
+
+    writeLog(
+      `${functionName}: 已刪除 ${rowsToDelete} 條舊日誌，保留最近 ${KEEP_ROWS} 列。`
+    );
     writeLog(`--- 每日日誌清理完成 (${functionName}) ---`);
   } catch (error) {
     writeLog(`${functionName}: 清理日誌過程中發生錯誤: ${error}`);
@@ -1260,63 +1620,130 @@ function initialize() {
   try {
     writeLog(`--- 開始執行初始化 (${functionName}) ---`);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ensureSheet = (name, headerRow = [], initialData = [], frozenRows = 1) => {
+    const ensureSheet = (
+      name,
+      headerRow = [],
+      initialData = [],
+      frozenRows = 1
+    ) => {
       let sheet = ss.getSheetByName(name);
       let created = false;
-      if (!sheet) { sheet = ss.insertSheet(name); created = true; writeLog(`已創建工作表: ${name}`); }
+      if (!sheet) {
+        sheet = ss.insertSheet(name);
+        created = true;
+        writeLog(`已創建工作表: ${name}`);
+      }
       if (headerRow.length > 0) {
-        if (created || sheet.getLastRow() < 1 || sheet.getRange(1,1,1,headerRow.length).getValues()[0].join('') === '') {
-          sheet.getRange(1,1,1,headerRow.length).setValues([headerRow]).setFontWeight("bold");
-          if (frozenRows > 0) try { sheet.setFrozenRows(frozenRows); } catch(_) {}
+        if (
+          created ||
+          sheet.getLastRow() < 1 ||
+          sheet.getRange(1, 1, 1, headerRow.length).getValues()[0].join("") ===
+            ""
+        ) {
+          sheet
+            .getRange(1, 1, 1, headerRow.length)
+            .setValues([headerRow])
+            .setFontWeight("bold");
+          if (frozenRows > 0)
+            try {
+              sheet.setFrozenRows(frozenRows);
+            } catch (_) {}
         }
       }
-      if (created && initialData.length > 0) initialData.forEach(row => sheet.appendRow(row));
+      if (created && initialData.length > 0)
+        initialData.forEach((row) => sheet.appendRow(row));
       if (name === SHEET_NAMES.RECORDS && sheet.getMaxColumns() < 6) {
-        try { sheet.insertColumnsAfter(sheet.getMaxColumns(), 6 - sheet.getMaxColumns()); sheet.getRange("F1").setValue("Reset Flag").setFontWeight("bold"); } catch(_) {}
+        try {
+          sheet.insertColumnsAfter(
+            sheet.getMaxColumns(),
+            6 - sheet.getMaxColumns()
+          );
+          sheet.getRange("F1").setValue("Reset Flag").setFontWeight("bold");
+        } catch (_) {}
       }
       return sheet;
     };
 
-    ensureSheet(SHEET_NAMES.RECORDS, ["時間", "對話 ID", "用戶 ID", "內容", "角色", "Reset Flag"], [], 1);
+    ensureSheet(
+      SHEET_NAMES.RECORDS,
+      ["時間", "對話 ID", "用戶 ID", "內容", "角色", "Reset Flag"],
+      [],
+      1
+    );
     ensureSheet(SHEET_NAMES.LOG, ["時間", "訊息"], [], 1);
-    ensureSheet(SHEET_NAMES.LAST_CONVERSATION, ["對話 ID (Context)", "歷史紀錄 (JSON)"], [], 1);
-    
+    ensureSheet(
+      SHEET_NAMES.LAST_CONVERSATION,
+      ["對話 ID (Context)", "歷史紀錄 (JSON)"],
+      [],
+      1
+    );
+
     // ========== 新增：個別模式工作表 ==========
-    ensureSheet(SHEET_NAMES.INDIVIDUAL_MODE, ["Context ID", "Prompt 編號", "模式名稱", "最後更新時間"], [], 1);
-    
+    ensureSheet(
+      SHEET_NAMES.INDIVIDUAL_MODE,
+      ["Context ID", "Prompt 編號", "模式名稱", "最後更新時間"],
+      [],
+      1
+    );
+
     const promptSheet = ensureSheet(SHEET_NAMES.PROMPT, [], [], 2);
 
     // ========== A1: Provider ==========
-    if (!String(promptSheet.getRange("A1").getValue() || '').trim()) {
-      promptSheet.getRange("A1").setValue("XAI").setNote("供應商：XAI 或 OPENROUTER");
+    if (!String(promptSheet.getRange("A1").getValue() || "").trim()) {
+      promptSheet
+        .getRange("A1")
+        .setValue("XAI")
+        .setNote("供應商：XAI 或 OPENROUTER");
     }
 
     // ========== A2: Model（只檢查一次）==========
-    if (!String(promptSheet.getRange("A2").getValue() || '').trim()) {
-      const provider = String(promptSheet.getRange("A1").getValue() || "XAI").toUpperCase();
-      const defaultModel = provider === "OPENROUTER" ? "openai/gpt-4o-mini" : "grok-4-fast";
-      promptSheet.getRange("A2").setValue(defaultModel).setNote("模型名稱：依供應商填入相容模型");
+    if (!String(promptSheet.getRange("A2").getValue() || "").trim()) {
+      const provider = String(
+        promptSheet.getRange("A1").getValue() || "XAI"
+      ).toUpperCase();
+      const defaultModel =
+        provider === "OPENROUTER" ? "openai/gpt-4o-mini" : "grok-4-fast";
+      promptSheet
+        .getRange("A2")
+        .setValue(defaultModel)
+        .setNote("模型名稱：依供應商填入相容模型");
     }
 
     // ========== B1: 全域預設 Prompt 編號 ==========
     const b1 = promptSheet.getRange("B1").getValue();
-    if (!(typeof b1 === 'number' && b1 > 0 && Number.isInteger(b1))) {
-      promptSheet.getRange("B1").setValue(1).setNote("全域預設提示詞編號（個別模式未設定時使用）");
+    if (!(typeof b1 === "number" && b1 > 0 && Number.isInteger(b1))) {
+      promptSheet
+        .getRange("B1")
+        .setValue(1)
+        .setNote("全域預設提示詞編號（個別模式未設定時使用）");
     }
 
     // ========== C1: Base Prompt ==========
-    if (!String(promptSheet.getRange("C1").getValue() || '').trim()) {
-      promptSheet.getRange("C1").setValue("你是一個友善的 AI 助理。").setNote("通用的基礎提示詞");
+    if (!String(promptSheet.getRange("C1").getValue() || "").trim()) {
+      promptSheet
+        .getRange("C1")
+        .setValue("你是一個友善的 AI 助理。")
+        .setNote("通用的基礎提示詞");
     }
 
     // ========== A3:C3 提示詞列表表頭（避免與 A2 Model 衝突）==========
-    if (promptSheet.getLastRow() < 3 || promptSheet.getRange("A3:C3").getValues()[0].join('') === "") {
-      promptSheet.getRange("A3:C3").setValues([["提示詞編號", "提示詞名稱", "提示詞內容"]]).setFontWeight("bold");
+    if (
+      promptSheet.getLastRow() < 3 ||
+      promptSheet.getRange("A3:C3").getValues()[0].join("") === ""
+    ) {
+      promptSheet
+        .getRange("A3:C3")
+        .setValues([["提示詞編號", "提示詞名稱", "提示詞內容"]])
+        .setFontWeight("bold");
     }
 
     // ========== A4 開始：預設提示詞範例 ==========
     if (promptSheet.getLastRow() < 4) {
-      promptSheet.appendRow([1, "預設助理模式", "你是個友善且樂於助人的 AI 助理。"]);
+      promptSheet.appendRow([
+        1,
+        "預設助理模式",
+        "你是個友善且樂於助人的 AI 助理。",
+      ]);
     }
 
     const maintResult = setupMaintenance();
@@ -1326,16 +1753,22 @@ function initialize() {
     writeLog(`--- 初始化完成 (${functionName}) ---`);
     return `${functionName} 完成。`;
   } catch (error) {
-    const errorMsg = `${functionName} 過程中發生嚴重錯誤: ${error}` + (error.stack ? "\nStack: " + error.stack : "");
-    try { writeLog(errorMsg); } catch (e) { console.error(errorMsg); }
+    const errorMsg =
+      `${functionName} 過程中發生嚴重錯誤: ${error}` +
+      (error.stack ? "\nStack: " + error.stack : "");
+    try {
+      writeLog(errorMsg);
+    } catch (e) {
+      console.error(errorMsg);
+    }
     return errorMsg;
   }
 }
 
 function setupRecordFlusher() {
-  const funcName = 'flushQueuedRecords';
+  const funcName = "flushQueuedRecords";
   const triggers = ScriptApp.getProjectTriggers();
-  const exists = triggers.some(t => t.getHandlerFunction() === funcName);
+  const exists = triggers.some((t) => t.getHandlerFunction() === funcName);
   if (!exists) {
     ScriptApp.newTrigger(funcName).timeBased().everyMinutes(1).create();
     writeLog(`已建立每分鐘批次寫入觸發器 (${funcName})`);
@@ -1354,12 +1787,13 @@ function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
       writeLog("doPost: 收到空的 POST 請求，略過");
-      return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Empty request" }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(
+        JSON.stringify({ status: "error", message: "Empty request" })
+      ).setMimeType(ContentService.MimeType.JSON);
     }
 
     const json = JSON.parse(e.postData.contents);
-    
+
     // Webhook 簽名驗證（建議啟用以防偽造請求）
     // 若要啟用，取消下面註解並在 Script Properties 設定 CHANNEL_SECRET
     /*
@@ -1376,13 +1810,18 @@ function doPost(e) {
     }
     */
 
-    if (!json.events || !Array.isArray(json.events) || json.events.length === 0) {
+    if (
+      !json.events ||
+      !Array.isArray(json.events) ||
+      json.events.length === 0
+    ) {
       writeLog("doPost: 無事件陣列，略過");
-      return ContentService.createTextOutput(JSON.stringify({ status: "ok", message: "No events" }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(
+        JSON.stringify({ status: "ok", message: "No events" })
+      ).setMimeType(ContentService.MimeType.JSON);
     }
 
-    json.events.forEach(event => {
+    json.events.forEach((event) => {
       try {
         // 事件去重（避免 LINE 重發導致重複處理）
         if (event.webhookEventId && isDuplicateEvent(event.webhookEventId)) {
@@ -1391,13 +1830,13 @@ function doPost(e) {
         }
 
         // 只處理訊息事件
-        if (event.type !== 'message') {
+        if (event.type !== "message") {
           writeLog(`略過非訊息事件: ${event.type}`);
           return;
         }
 
         // 只處理文字訊息
-        if (event.message.type !== 'text') {
+        if (event.message.type !== "text") {
           writeLog(`略過非文字訊息: ${event.message.type}`);
           return;
         }
@@ -1408,29 +1847,39 @@ function doPost(e) {
 
         // contextId：群組/房間用 groupId/roomId，1:1 用 userId
         let contextId = userId;
-        if (event.source.type === 'group' && event.source.groupId) {
+        if (event.source.type === "group" && event.source.groupId) {
           contextId = event.source.groupId;
-        } else if (event.source.type === 'room' && event.source.roomId) {
+        } else if (event.source.type === "room" && event.source.roomId) {
           contextId = event.source.roomId;
         }
 
-        writeLog(`收到訊息事件: userId=${userId}, contextId=${contextId}, text='${userMessage.substring(0,30)}...'`);
+        writeLog(
+          `收到訊息事件: userId=${userId}, contextId=${contextId}, text='${userMessage.substring(
+            0,
+            30
+          )}...'`
+        );
 
         // 呼叫核心處理函數
         handleMessage(userMessage, userId, replyToken, contextId);
-
       } catch (eventError) {
-        writeLog(`處理事件錯誤: ${eventError}` + (eventError.stack ? `\nStack: ${eventError.stack}` : ''));
+        writeLog(
+          `處理事件錯誤: ${eventError}` +
+            (eventError.stack ? `\nStack: ${eventError.stack}` : "")
+        );
       }
     });
 
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
-      .setMimeType(ContentService.MimeType.JSON);
-
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "ok" })
+    ).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
-    writeLog(`doPost 錯誤: ${error}` + (error.stack ? `\nStack: ${error.stack}` : ''));
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    writeLog(
+      `doPost 錯誤: ${error}` + (error.stack ? `\nStack: ${error.stack}` : "")
+    );
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "error", message: error.toString() })
+    ).setMimeType(ContentService.MimeType.JSON);
   } finally {
     flushLogs();
   }
@@ -1444,7 +1893,7 @@ function isDuplicateEvent(eventId) {
   const key = `event_${eventId}`;
   const exists = cache.get(key);
   if (exists) return true;
-  cache.put(key, '1', 60);
+  cache.put(key, "1", 60);
   writeLog(`新事件 ID ${eventId}，加入快取 60 秒`);
   return false;
 }
